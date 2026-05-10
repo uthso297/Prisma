@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello Prisma</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; }
+      h1 { margin-bottom: 0.25rem; }
+      h2 { margin-top: 2rem; border-bottom: 1px solid #8884; padding-bottom: 0.25rem; }
+      form { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
+      input, select, button, textarea { padding: 0.4rem 0.6rem; font: inherit; }
+      input, select, textarea { border: 1px solid #8886; border-radius: 4px; background: transparent; color: inherit; }
+      button { cursor: pointer; border: 1px solid #8886; border-radius: 4px; background: #8882; color: inherit; }
+      button:hover { background: #8884; }
+      ul { list-style: none; padding: 0; }
+      li { padding: 0.6rem 0.75rem; border: 1px solid #8884; border-radius: 4px; margin-bottom: 0.4rem; display: flex; gap: 0.6rem; align-items: center; }
+      li .meta { color: #888; font-size: 0.85em; }
+      .grow { flex: 1; min-width: 0; }
+      .pill { font-size: 0.75em; padding: 0.1rem 0.4rem; border-radius: 999px; background: #8884; }
+      .pill.pub { background: #2e8b57; color: white; }
+      .danger { color: #c33; border-color: #c336; }
+    </style>
+  </head>
+  <body>
+    <h1>Hello Prisma</h1>
+    <p>Minimal UI for the User + Post schema.</p>
+
+    <h2>Users</h2>
+    <form id="user-form">
+      <input name="email" type="email" placeholder="email" required />
+      <input name="name" placeholder="name (optional)" />
+      <button type="submit">Add user</button>
+    </form>
+    <ul id="users"></ul>
+
+    <h2>Posts</h2>
+    <form id="post-form">
+      <input name="title" placeholder="title" required class="grow" />
+      <select name="authorId" required></select>
+      <input name="content" placeholder="content (optional)" class="grow" />
+      <label><input type="checkbox" name="published" /> published</label>
+      <button type="submit">Add post</button>
+    </form>
+    <form id="search-form">
+      <input name="q" placeholder="search title / content..." class="grow" />
+      <button type="submit">Search</button>
+      <button type="button" id="clear-search">Clear</button>
+    </form>
+    <ul id="posts"></ul>
+
+    <script type="module">
+      const $ = (s) => document.querySelector(s);
+      const api = (p, opts) => fetch(p, { headers: { "content-type": "application/json" }, ...opts }).then((r) => (r.status === 204 ? null : r.json()));
+
+      let users = [];
+
+      async function loadUsers() {
+        users = await api("/api/users");
+        $("#users").innerHTML = users
+          .map(
+            (u) => `
+              <li>
+                <span class="grow"><b>${u.name ?? "(no name)"}</b> <span class="meta">${u.email}</span></span>
+                <span class="pill">${u._count.posts} posts</span>
+                <button class="danger" data-del-user="${u.id}">delete</button>
+              </li>`
+          )
+          .join("") || "<li class=meta>No users yet.</li>";
+
+        const sel = $('select[name=authorId]');
+        sel.innerHTML = users.map((u) => `<option value="${u.id}">${u.name ?? u.email}</option>`).join("");
+      }
+
+      async function loadPosts(q = "") {
+        const posts = await api("/api/posts" + (q ? `?q=${encodeURIComponent(q)}` : ""));
+        $("#posts").innerHTML = posts
+          .map(
+            (p) => `
+              <li>
+                <span class="grow">
+                  <b>${p.title}</b>
+                  <span class="pill ${p.published ? "pub" : ""}">${p.published ? "published" : "draft"}</span>
+                  <div class="meta">by ${p.author.name ?? p.author.email}${p.content ? " — " + p.content : ""}</div>
+                </span>
+                <button data-toggle="${p.id}" data-published="${p.published}">${p.published ? "unpublish" : "publish"}</button>
+                <button class="danger" data-del-post="${p.id}">delete</button>
+              </li>`
+          )
+          .join("") || "<li class=meta>No posts yet.</li>";
+      }
+
+      $("#user-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const res = await fetch("/api/users", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: fd.get("email"), name: fd.get("name") }),
+        });
+        if (!res.ok) {
+          const { error } = await res.json();
+          alert(error);
+          return;
+        }
+        e.target.reset();
+        await loadUsers();
+      });
+
+      $("#post-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        await api("/api/posts", {
+          method: "POST",
+          body: JSON.stringify({
+            title: fd.get("title"),
+            content: fd.get("content"),
+            authorId: Number(fd.get("authorId")),
+            published: fd.get("published") === "on",
+          }),
+        });
+        e.target.reset();
+        await Promise.all([loadUsers(), loadPosts()]);
+      });
+
+      $("#search-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        loadPosts(new FormData(e.target).get("q"));
+      });
+      $("#clear-search").addEventListener("click", () => {
+        $("#search-form").reset();
+        loadPosts();
+      });
+
+      document.addEventListener("click", async (e) => {
+        const t = e.target;
+        if (t.dataset.delUser) {
+          if (!confirm("Delete user and all their posts?")) return;
+          await api(`/api/users/${t.dataset.delUser}`, { method: "DELETE" });
+          await Promise.all([loadUsers(), loadPosts()]);
+        } else if (t.dataset.delPost) {
+          await api(`/api/posts/${t.dataset.delPost}`, { method: "DELETE" });
+          await Promise.all([loadUsers(), loadPosts()]);
+        } else if (t.dataset.toggle) {
+          await api(`/api/posts/${t.dataset.toggle}`, {
+            method: "PATCH",
+            body: JSON.stringify({ published: t.dataset.published !== "true" }),
+          });
+          await loadPosts();
+        }
+      });
+
+      loadUsers().then(() => loadPosts());
+    </script>
+  </body>
+</html>
