@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(Get-ChildItem -Path \"n:\\\\LEARN_PRISMA\\\\hello_prisma\" -Force | Where-Object { $_.Name -ne 'node_modules' } | Select-Object Name, Mode)"
-    ]
-  }
-}
